@@ -15,8 +15,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
+import inspect
+
 from litellm.proxy._types import (
     GenerateKeyRequest,
+    NewUserRequest,
     LiteLLM_BudgetTable,
     LiteLLM_OrganizationTable,
     LiteLLM_TeamTableCachedObj,
@@ -13386,3 +13389,23 @@ async def test_permissions_admin_can_set_any(monkeypatch):
             team_table=None,
         )
     assert result is not None
+
+
+def test_generate_key_helper_fn_accepts_per_tag_rate_limits():
+    """
+    Regression: new_user / SSO sign-in forward NewUserRequest fields to
+    generate_key_helper_fn via `**data_json`. The per-tag limit field must be
+    an accepted kwarg, otherwise user creation 500s with
+    "generate_key_helper_fn() got an unexpected keyword argument 'tag_rpm_limit'".
+    """
+    params = inspect.signature(generate_key_helper_fn).parameters
+    assert "tag_rpm_limit" in params
+
+    # The field exists on the request model that new_user forwards via **data_json.
+    assert "tag_rpm_limit" in NewUserRequest.model_fields
+
+    # Binding the per-tag kwarg must not raise an unexpected-keyword TypeError.
+    inspect.signature(generate_key_helper_fn).bind_partial(
+        request_type="user",
+        tag_rpm_limit={"cell-1": 5},
+    )
